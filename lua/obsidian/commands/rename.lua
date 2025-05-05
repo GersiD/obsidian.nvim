@@ -5,37 +5,12 @@ local File = require("obsidian.async").File
 local log = require "obsidian.log"
 local search = require "obsidian.search"
 local util = require "obsidian.util"
-local enumerate = require("obsidian.itertools").enumerate
-local zip = require("obsidian.itertools").zip
 local compat = require "obsidian.compat"
+local enumerate, zip = util.enumerate, util.zip
 
 ---@param client obsidian.Client
+---@param data CommandArgs
 return function(client, data)
-  -- Validate args.
-  local dry_run = false
-  ---@type string|?
-  local arg
-
-  if data.args == "--dry-run" then
-    dry_run = true
-    data.args = nil
-  end
-
-  if data.args ~= nil and string.len(data.args) > 0 then
-    arg = util.strip_whitespace(data.args)
-  else
-    arg = util.input("Enter new note ID/name/path: ", { completion = "file" })
-    if not arg or string.len(arg) == 0 then
-      log.warn "Rename aborted"
-      return
-    end
-  end
-
-  if vim.endswith(arg, " --dry-run") then
-    dry_run = true
-    arg = util.strip_whitespace(string.sub(arg, 1, -string.len " --dry-run" - 1))
-  end
-
   -- Resolve the note to rename.
   ---@type boolean
   local is_current_buf
@@ -45,14 +20,17 @@ return function(client, data)
   local cur_note_path
   ---@type obsidian.Note
   local cur_note
+
   local cur_note_id = util.parse_cursor_link()
   if cur_note_id == nil then
+    -- rename current note
     is_current_buf = true
     cur_note_bufnr = assert(vim.fn.bufnr())
     cur_note_path = Path.buffer(cur_note_bufnr)
     cur_note = Note.from_file(cur_note_path)
     cur_note_id = tostring(cur_note.id)
   else
+    -- rename note under the cursor
     local notes = { client:resolve_note(cur_note_id) }
     if #notes == 0 then
       log.err("Failed to resolve '%s' to a note", cur_note_id)
@@ -73,6 +51,31 @@ return function(client, data)
         break
       end
     end
+  end
+
+  -- Validate args.
+  local dry_run = false
+  ---@type string|?
+  local arg
+
+  if data.args == "--dry-run" then
+    dry_run = true
+    data.args = nil
+  end
+
+  if data.args ~= nil and string.len(data.args) > 0 then
+    arg = util.strip_whitespace(data.args)
+  else
+    arg = util.input("Enter new note ID/name/path: ", { completion = "file", default = cur_note_id })
+    if not arg or string.len(arg) == 0 then
+      log.warn "Rename aborted"
+      return
+    end
+  end
+
+  if vim.endswith(arg, " --dry-run") then
+    dry_run = true
+    arg = util.strip_whitespace(string.sub(arg, 1, -string.len " --dry-run" - 1))
   end
 
   assert(cur_note_path)
@@ -113,7 +116,7 @@ return function(client, data)
         .. "'...\n"
         .. "This will write all buffers and potentially modify a lot of files. If you're using version control "
         .. "with your vault it would be a good idea to commit the current state of your vault before running this.\n"
-        .. "You can also do a dry run of this by running ':ObsidianRename "
+        .. "You can also do a dry run of this by running ':Obsidian rename "
         .. arg
         .. " --dry-run'.\n"
         .. "Do you want to continue?"
@@ -148,11 +151,8 @@ return function(client, data)
       -- If we're renaming the note of a current buffer, save as the new path.
       if not dry_run then
         quietly(vim.cmd.saveas, tostring(new_note_path))
-        for bufnr, bufname in util.get_named_buffers() do
-          if bufname == cur_note_path then
-            quietly(vim.cmd.bdelete, bufnr)
-          end
-        end
+        local new_bufnr_current_note = vim.fn.bufnr(tostring(cur_note_path))
+        quietly(vim.cmd.bdelete, new_bufnr_current_note)
         vim.fn.delete(tostring(cur_note_path))
       else
         log.info("Dry run: saving current buffer as '" .. tostring(new_note_path) .. "' and removing old file")
@@ -182,16 +182,14 @@ return function(client, data)
     end
   end
 
-  if not is_current_buf then
-    -- When the note to rename is not the current buffer we need to update its frontmatter
-    -- to account for the rename.
-    cur_note.id = new_note_id
-    cur_note.path = Path.new(new_note_path)
-    if not dry_run then
-      cur_note:save()
-    else
-      log.info("Dry run: updating frontmatter of '" .. tostring(new_note_path) .. "'")
-    end
+  -- We need to update its frontmatter note_id
+  -- to account for the rename.
+  cur_note.id = new_note_id
+  cur_note.path = Path.new(new_note_path)
+  if not dry_run then
+    cur_note:save()
+  else
+    log.info("Dry run: updating frontmatter of '" .. tostring(new_note_path) .. "'")
   end
 
   local cur_note_rel_path = tostring(client:vault_relative_path(cur_note_path, { strict = true }))

@@ -1,9 +1,49 @@
-local iter = require("obsidian.itertools").iter
-local enumerate = require("obsidian.itertools").enumerate
+local iter = vim.iter
 local log = require "obsidian.log"
 local compat = require "obsidian.compat"
 
 local util = {}
+
+-------------------
+--- Iter tools ----
+-------------------
+
+---Create an enumeration iterator over an iterable.
+---@param iterable table|string|function
+---@return function
+util.enumerate = function(iterable)
+  local iterator = vim.iter(iterable)
+  local i = 0
+
+  return function()
+    local next = iterator()
+    if next == nil then
+      return nil, nil
+    else
+      i = i + 1
+      return i, next
+    end
+  end
+end
+
+---Zip two iterables together.
+---@param iterable1 table|string|function
+---@param iterable2 table|string|function
+---@return function
+util.zip = function(iterable1, iterable2)
+  local iterator1 = vim.iter(iterable1)
+  local iterator2 = vim.iter(iterable2)
+
+  return function()
+    local next1 = iterator1()
+    local next2 = iterator2()
+    if next1 == nil or next2 == nil then
+      return nil
+    else
+      return next1, next2
+    end
+  end
+end
 
 -------------------
 -- Table methods --
@@ -128,7 +168,7 @@ util.urlencode = function(str, opts)
   opts = opts or {}
   local url = str
   url = url:gsub("\n", "\r\n")
-  url = url:gsub("([^/%w _%%%-%.~])", char_to_hex)
+  url = url:gsub("([%(%)%*%?%[%]%$\"':<>|\\'{}])", char_to_hex)
   if not opts.keep_path_sep then
     url = url:gsub("/", char_to_hex)
   end
@@ -172,8 +212,28 @@ util.match_case = function(prefix, key)
   return table.concat(out_chars, "")
 end
 
-util.escape_magic_characters = function(text)
-  return text:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
+---Check if a string is a checkbox list item
+---
+---Supported checboox lists:
+--- - [ ] foo
+--- - [x] foo
+--- + [x] foo
+--- * [ ] foo
+--- 1. [ ] foo
+--- 1) [ ] foo
+---
+---@param s string
+---@return boolean
+util.is_checkbox = function(s)
+  -- - [ ] and * [ ] and + [ ]
+  if string.match(s, "^%s*[-+*]%s+%[.%]") ~= nil then
+    return true
+  end
+  -- 1. [ ] and 1) [ ]
+  if string.match(s, "^%s*%d+[%.%)]%s+%[.%]") ~= nil then
+    return true
+  end
+  return false
 end
 
 ---Check if a string is a valid URL.
@@ -193,6 +253,10 @@ util.is_url = function(s)
   end
 end
 
+---Checks if a given string represents an image file based on its suffix.
+---
+---@param s string: The input string to check.
+---@return boolean: Returns true if the string ends with a supported image suffix, false otherwise.
 util.is_img = function(s)
   for _, suffix in ipairs { ".png", ".jpg", ".jpeg", ".heic", ".gif", ".svg", ".ico" } do
     if vim.endswith(s, suffix) then
@@ -503,31 +567,31 @@ util.zettel_id = function()
   return tostring(os.time()) .. "-" .. suffix
 end
 
----Toggle the checkbox on the line that the cursor is on.
+---Toggle the checkbox on the current line.
+---
+---@param opts table|nil Optional table containing checkbox states (e.g., {" ", "x"}).
+---@param line_num number|nil Optional line number to toggle the checkbox on. Defaults to the current line.
 util.toggle_checkbox = function(opts, line_num)
   -- Allow line_num to be optional, defaulting to the current line if not provided
   line_num = line_num or unpack(vim.api.nvim_win_get_cursor(0))
   local line = vim.api.nvim_buf_get_lines(0, line_num - 1, line_num, false)[1]
 
-  local checkbox_pattern = "^%s*- %[.] "
   local checkboxes = opts or { " ", "x" }
 
-  if not string.match(line, checkbox_pattern) then
+  if util.is_checkbox(line) then
+    for i, check_char in ipairs(checkboxes) do
+      if string.match(line, "^.* %[" .. vim.pesc(check_char) .. "%].*") then
+        i = i % #checkboxes
+        line = util.string_replace(line, "[" .. check_char .. "]", "[" .. checkboxes[i + 1] .. "]", 1)
+        break
+      end
+    end
+  else
     local unordered_list_pattern = "^(%s*)[-*+] (.*)"
     if string.match(line, unordered_list_pattern) then
       line = string.gsub(line, unordered_list_pattern, "%1- [ ] %2")
     else
       line = string.gsub(line, "^(%s*)", "%1- [ ] ")
-    end
-  else
-    for i, check_char in enumerate(checkboxes) do
-      if string.match(line, "^%s*- %[" .. util.escape_magic_characters(check_char) .. "%].*") then
-        if i == #checkboxes then
-          i = 0
-        end
-        line = util.string_replace(line, "- [" .. check_char .. "]", "- [" .. checkboxes[i + 1] .. "]", 1)
-        break
-      end
     end
   end
   -- 0-indexed
@@ -545,12 +609,28 @@ util.is_working_day = function(time)
   return not (is_saturday or is_sunday)
 end
 
+--- Returns the previous day from given time
+---
+--- @param time integer
+--- @return integer
+util.previous_day = function(time)
+  return time - (24 * 60 * 60)
+end
+---
+--- Returns the next day from given time
+---
+--- @param time integer
+--- @return integer
+util.next_day = function(time)
+  return time + (24 * 60 * 60)
+end
+
 ---Determines the last working day before a given time
 ---
 ---@param time integer
 ---@return integer
 util.working_day_before = function(time)
-  local previous_day = time - (24 * 60 * 60)
+  local previous_day = util.previous_day(time)
   if util.is_working_day(previous_day) then
     return previous_day
   else
@@ -563,7 +643,7 @@ end
 ---@param time integer
 ---@return integer
 util.working_day_after = function(time)
-  local next_day = time + (24 * 60 * 60)
+  local next_day = util.next_day(time)
   if util.is_working_day(next_day) then
     return next_day
   else
@@ -743,28 +823,44 @@ util.cursor_tag = function(line, col)
   return nil
 end
 
+--- Get the heading under the cursor, if there is one.
+---
+---@param line string|?
+---
+---@return string|?
+util.cursor_heading = function(line)
+  local current_line = line and line or vim.api.nvim_get_current_line()
+  return current_line:match "^(%s*)(#+)%s*(.*)$"
+end
+
 util.gf_passthrough = function()
+  local legacy = require("obsidian").get_client().opts.legacy_commands
   if util.cursor_on_markdown_link(nil, nil, true) then
-    return "<cmd>ObsidianFollowLink<CR>"
+    return legacy and "<cmd>ObsidianFollowLink<cr>" or "<cmd>Obsidian follow_link<cr>"
   else
     return "gf"
   end
 end
 
 util.smart_action = function()
+  local legacy = require("obsidian").get_client().opts.legacy_commands
   -- follow link if possible
   if util.cursor_on_markdown_link(nil, nil, true) then
-    return "<cmd>ObsidianFollowLink<CR>"
+    return legacy and "<cmd>ObsidianFollowLink<cr>" or "<cmd>Obsidian follow_link<cr>"
   end
 
   -- show notes with tag if possible
   if util.cursor_tag(nil, nil) then
-    return "<cmd>ObsidianTag<CR>"
+    return legacy and "<cmd>ObsidianTags<cr>" or "<cmd>Obsidian tags<cr>"
+  end
+
+  if util.cursor_heading() then
+    return "za"
   end
 
   -- toggle task if possible
   -- cycles through your custom UI checkboxes, default: [ ] [~] [>] [x]
-  return "<cmd>ObsidianToggleCheckbox<CR>"
+  return legacy and "<cmd>ObsidianToggleCheckbox<cr>" or "<cmd>Obsidian toggle_checkbox<cr>"
 end
 
 ---Get the path to where a plugin is installed.
@@ -1130,7 +1226,7 @@ util.get_icon = function(path)
 end
 
 -- We are very loose here because obsidian allows pretty much anything
-util.ANCHOR_LINK_PATTERN = "#[%w%d][^#]*"
+util.ANCHOR_LINK_PATTERN = "#[%w%d\128-\255][^#]*"
 
 util.BLOCK_PATTERN = "%^[%w%d][%w%d-]*"
 
@@ -1243,7 +1339,7 @@ util.standardize_anchor = function(anchor)
   -- Replace whitespace with "-".
   anchor = string.gsub(anchor, "%s", "-")
   -- Remove every non-alphanumeric character.
-  anchor = string.gsub(anchor, "[^#%w_-]", "")
+  anchor = string.gsub(anchor, "[^#%w\128-\255_-]", "")
   return anchor
 end
 
@@ -1344,6 +1440,16 @@ util.buffer_is_empty = function(bufnr)
       return false
     end
   end
+end
+
+--- Check if a string contains invalid characters.
+---
+--- @param fname string
+---
+--- @return boolean
+util.contains_invalid_characters = function(fname)
+  local invalid_chars = "#^%[%]|"
+  return string.find(fname, "[" .. invalid_chars .. "]") ~= nil
 end
 
 ---Check if a string is NaN

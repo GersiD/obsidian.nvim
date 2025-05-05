@@ -13,6 +13,7 @@ local function parse_offset(arg)
 end
 
 ---@param client obsidian.Client
+---@param data CommandArgs
 return function(client, data)
   local offset_start = -5
   local offset_end = 0
@@ -31,7 +32,7 @@ return function(client, data)
       offset_start = offsets[1]
       offset_end = offsets[2]
     else
-      error ":ObsidianDailies expected at most 2 arguments"
+      error ":Obsidian dailies expected at most 2 arguments"
     end
   end
 

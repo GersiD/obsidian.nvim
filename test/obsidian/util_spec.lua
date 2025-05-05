@@ -29,6 +29,38 @@ describe("util.match_case()", function()
   end)
 end)
 
+describe("util.previous_day", function()
+  it("returns one day prior", function()
+    local now = os.time { year = 2025, month = 4, day = 27 }
+
+    assert.equals(util.previous_day(now), os.time { year = 2025, month = 4, day = 26 })
+  end)
+end)
+
+describe("util.next_day", function()
+  it("returns the day after", function()
+    local now = os.time { year = 2025, month = 4, day = 27 }
+
+    assert.equals(util.next_day(now), os.time { year = 2025, month = 4, day = 28 })
+  end)
+end)
+
+describe("util.working_day_before", function()
+  it("returns the last working day", function()
+    local now = os.time { year = 2025, month = 4, day = 27 }
+
+    assert.equals(util.working_day_before(now), os.time { year = 2025, month = 4, day = 25 })
+  end)
+end)
+
+describe("util.working_day_after", function()
+  it("returns the last working day", function()
+    local now = os.time { year = 2025, month = 4, day = 25 }
+
+    assert.equals(util.working_day_after(now), os.time { year = 2025, month = 4, day = 28 })
+  end)
+end)
+
 describe("util.cursor_on_markdown_link()", function()
   it("should correctly find if coursor is on markdown/wiki link", function()
     --           0    5    10   15   20   25   30   35   40    45  50   55
@@ -51,22 +83,6 @@ describe("util.cursor_on_markdown_link()", function()
       assert.equals(test.open, open, "cursor at: " .. test.cur_col)
       assert.equals(test.close, close, "close")
     end
-  end)
-end)
-
-describe("util.escape_magic_characters()", function()
-  it("should correctly escape magic characters", function()
-    -- special characters: ^$()%.[]*+-?
-    assert.equals(util.escape_magic_characters "^foo", "%^foo")
-    assert.equal(util.escape_magic_characters "foo$", "foo%$")
-    assert.equal(util.escape_magic_characters "foo(bar)", "foo%(bar%)")
-    assert.equal(util.escape_magic_characters "foo.bar", "foo%.bar")
-    assert.equal(util.escape_magic_characters "foo[bar]", "foo%[bar%]")
-    assert.equal(util.escape_magic_characters "foo*bar", "foo%*bar")
-    assert.equal(util.escape_magic_characters "foo+bar", "foo%+bar")
-    assert.equal(util.escape_magic_characters "foo-bar", "foo%-bar")
-    assert.equal(util.escape_magic_characters "foo?bar", "foo%?bar")
-    assert.equal(util.escape_magic_characters "foo%bar", "foo%%bar")
   end)
 end)
 
@@ -387,5 +403,116 @@ describe("util.markdown_link()", function()
       "[Foo](notes/123%20foo.md)",
       util.markdown_link { path = "notes/123 foo.md", id = "123-foo", label = "Foo" }
     )
+  end)
+end)
+
+describe("util.toggle_checkbox", function()
+  before_each(function()
+    vim.cmd "bwipeout!" -- wipe out the buffer to avoid unsaved changes
+    vim.cmd "enew" -- create a new empty buffer
+    vim.bo.bufhidden = "wipe" -- and wipe it after use
+  end)
+
+  it("should toggle between default states with - lists", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "- [ ] dummy" })
+    local custom_states = nil
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("- [x] dummy", vim.api.nvim_get_current_line())
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("- [ ] dummy", vim.api.nvim_get_current_line())
+  end)
+
+  it("should toggle between default states with * lists", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "* [ ] dummy" })
+    local custom_states = nil
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("* [x] dummy", vim.api.nvim_get_current_line())
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("* [ ] dummy", vim.api.nvim_get_current_line())
+  end)
+
+  it("should toggle between default states with numbered lists with .", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "1. [ ] dummy" })
+    local custom_states = nil
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("1. [x] dummy", vim.api.nvim_get_current_line())
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("1. [ ] dummy", vim.api.nvim_get_current_line())
+  end)
+
+  it("should toggle between default states with numbered lists with )", function()
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "1) [ ] dummy" })
+    local custom_states = nil
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("1) [x] dummy", vim.api.nvim_get_current_line())
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("1) [ ] dummy", vim.api.nvim_get_current_line())
+  end)
+
+  it("should use custom states if provided", function()
+    local custom_states = { " ", "!", "x" }
+    vim.api.nvim_buf_set_lines(0, 0, -1, false, { "- [ ] dummy" })
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("- [!] dummy", vim.api.nvim_get_current_line())
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("- [x] dummy", vim.api.nvim_get_current_line())
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("- [ ] dummy", vim.api.nvim_get_current_line())
+
+    util.toggle_checkbox(custom_states)
+    assert.equals("- [!] dummy", vim.api.nvim_get_current_line())
+  end)
+end)
+
+describe("util.is_checkbox", function()
+  it("should return true for valid checkbox list items", function()
+    assert.is_true(util.is_checkbox "- [ ] Task 1")
+    assert.is_true(util.is_checkbox "- [x] Task 1")
+    assert.is_true(util.is_checkbox "+ [ ] Task 1")
+    assert.is_true(util.is_checkbox "+ [x] Task 1")
+    assert.is_true(util.is_checkbox "* [ ] Task 2")
+    assert.is_true(util.is_checkbox "* [x] Task 2")
+    assert.is_true(util.is_checkbox "1. [ ] Task 3")
+    assert.is_true(util.is_checkbox "1. [x] Task 3")
+    assert.is_true(util.is_checkbox "2. [ ] Task 3")
+    assert.is_true(util.is_checkbox "10. [ ] Task 3")
+    assert.is_true(util.is_checkbox "1) [ ] Task")
+    assert.is_true(util.is_checkbox "10) [ ] Task")
+  end)
+
+  it("should return false for non-checkbox list items", function()
+    assert.is_false(util.is_checkbox "- Task 1")
+    assert.is_false(util.is_checkbox "-- Task 1")
+    assert.is_false(util.is_checkbox "-- [ ] Task 1")
+    assert.is_false(util.is_checkbox "* Task 2")
+    assert.is_false(util.is_checkbox "++ [ ] Task 2")
+    assert.is_false(util.is_checkbox "1. Task 3")
+    assert.is_false(util.is_checkbox "1.1 Task 3")
+    assert.is_false(util.is_checkbox "1.1 [ ] Task 3")
+    assert.is_false(util.is_checkbox "1)1 Task 3")
+    assert.is_false(util.is_checkbox "Random text")
+  end)
+
+  it("should handle leading spaces correctly", function()
+    -- true
+    assert.is_true(util.is_checkbox "  - [ ] Task 1")
+    assert.is_true(util.is_checkbox "    * [ ] Task 2")
+    assert.is_true(util.is_checkbox "     5. [ ] Task 2")
+
+    -- false
+    assert.is_false(util.is_checkbox "    - Task 1")
+    assert.is_false(util.is_checkbox "    * Task 1")
+    assert.is_false(util.is_checkbox "    1. Task 1")
   end)
 end)

@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Added `makefile types` target to check types via lua-ls
+- Added `.github/pull_request_template.md` to make contributing simpler
 
 ### Changed
 
 - Remove `itertools.lua` in favor of `vim.iter`
+- Configure `foldmethod`, `foldexpr`, and `foldlevel` in ftplugin instead of the BufEnter event. This allows user overrides of these configurations.
+- Remove `fillchars`, `foldtext`, and `smoothscroll` configurations.
 
 ### Fixed
 

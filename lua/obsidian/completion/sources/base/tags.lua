@@ -102,14 +102,29 @@ end
 --- Runs a generalized version of the execute method
 ---@param item any
 function TagsSourceBase:process_execute(item)
-  if item.data.in_frontmatter then
-    -- Remove the '#' at the start of the tag.
-    -- TODO: ideally we should be able to do this by specifying the completion item in the right way,
-    -- but I haven't figured out how to do that.
-    local line = vim.api.nvim_buf_get_lines(item.data.bufnr, item.data.line, item.data.line + 1, true)[1]
-    line = util.string_replace(line, "#" .. item.data.tag, item.data.tag, 1)
-    vim.api.nvim_buf_set_lines(item.data.bufnr, item.data.line, item.data.line + 1, true, { line })
+  local line_nr = item.data.line - 2 -- who knows why this is -2, all I know is that it is
+
+  -- Get the current line contents
+  local line = vim.api.nvim_buf_get_lines(item.data.bufnr, line_nr, line_nr + 1, false)[1]
+  if not line then
+    return
   end
+
+  -- Find the last '#' in the line
+  local last_hash_pos = line:match ".*()#"
+  if not last_hash_pos then
+    return
+  end
+
+  -- Move the cursor to the last '#' and delete everything after it
+  vim.api.nvim_win_set_cursor(0, { line_nr + 1, last_hash_pos })
+  vim.api.nvim_buf_set_text(item.data.bufnr, line_nr, last_hash_pos, line_nr, #line, { "" })
+
+  -- Insert the tag
+  util.insert_text(item.data.tag)
+  -- Move the cursor to the end of the inserted tag
+  local new_col = last_hash_pos + #item.data.tag
+  vim.api.nvim_win_set_cursor(0, { line_nr + 1, new_col })
 end
 
 return TagsSourceBase
